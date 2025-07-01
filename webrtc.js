@@ -1,11 +1,11 @@
-import { doc, collection, addDoc, onSnapshot, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
 import { updateRemotePlayerPosition, updateAIPositionFromBroadcast } from "./game.js";
 
-let db;
+let supabase;
 let localUid;
 let roomId;
 let peerConnections = {};
 let dataChannels = {};
+let realtimeChannel;
 
 const configuration = {
     iceServers: [
@@ -13,8 +13,8 @@ const configuration = {
     ]
 };
 
-export function initWebRTC(firestoreDb, uid, currentRoomId, players) {
-    db = firestoreDb;
+export function initWebRTC(supabaseClient, uid, currentRoomId, players) {
+    supabase = supabaseClient;
     localUid = uid;
     roomId = currentRoomId;
 
@@ -34,12 +34,12 @@ function createPeerConnection(remoteUid, isOffering) {
 
     peerConnections[remoteUid].onicecandidate = event => {
         if (event.candidate) {
-            const signalRef = collection(db, "rooms", roomId, "signals");
-            addDoc(signalRef, {
-                from: localUid,
-                to: remoteUid,
-                candidate: event.candidate.toJSON()
-            });
+            supabase.from('signals').insert({
+                room_id: roomId,
+                from_uid: localUid,
+                to_uid: remoteUid,
+                data: { candidate: event.candidate.toJSON() }
+            }).then();
         }
     };
 
@@ -50,13 +50,12 @@ function createPeerConnection(remoteUid, isOffering) {
         peerConnections[remoteUid].createOffer()
             .then(offer => peerConnections[remoteUid].setLocalDescription(offer))
             .then(() => {
-                const offerPayload = {
-                    from: localUid,
-                    to: remoteUid,
-                    sdp: peerConnections[remoteUid].localDescription.toJSON()
-                };
-                const signalRef = collection(db, "rooms", roomId, "signals");
-                addDoc(signalRef, offerPayload);
+                supabase.from('signals').insert({
+                    room_id: roomId,
+                    from_uid: localUid,
+                    to_uid: remoteUid,
+                    data: { sdp: peerConnections[remoteUid].localDescription.toJSON() }
+                }).then();
             });
     } else {
         peerConnections[remoteUid].ondatachannel = event => {
@@ -67,42 +66,30 @@ function createPeerConnection(remoteUid, isOffering) {
 }
 
 function listenForWebRTCSignals() {
-    const signalsRef = collection(db, "rooms", roomId, "signals");
-    onSnapshot(signalsRef, snapshot => {
-        snapshot.docChanges().forEach(change => {
-            if (change.type === 'added') {
-                const signal = change.doc.data();
-                const remoteUid = signal.from;
+    realtimeChannel = supabase.channel(`signals_for_${localUid}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'signals', filter: `to_uid=eq.${localUid}` }, async payload => {
+            const signal = payload.new.data;
+            const remoteUid = payload.new.from_uid;
+            const pc = peerConnections[remoteUid];
+            if (!pc) return;
 
-                if (signal.to !== localUid) return;
-
-                const pc = peerConnections[remoteUid];
-                if (!pc) return;
-
-                if (signal.sdp) {
-                    pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-                        .then(() => {
-                            if (signal.sdp.type === 'offer') {
-                                pc.createAnswer()
-                                    .then(answer => pc.setLocalDescription(answer))
-                                    .then(() => {
-                                        const answerPayload = {
-                                            from: localUid,
-                                            to: remoteUid,
-                                            sdp: pc.localDescription.toJSON()
-                                        };
-                                        const signalRef = collection(db, "rooms", roomId, "signals");
-                                        addDoc(signalRef, answerPayload);
-                                    });
-                            }
-                        }).catch(e => console.error("Error setting remote description:", e));
-                } else if (signal.candidate) {
-                    pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
-                       .catch(e => console.error("Error adding ICE candidate:", e));
+            if (signal.sdp) {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                if (signal.sdp.type === 'offer') {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    await supabase.from('signals').insert({
+                        room_id: roomId,
+                        from_uid: localUid,
+                        to_uid: remoteUid,
+                        data: { sdp: pc.localDescription.toJSON() }
+                    });
                 }
+            } else if (signal.candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
             }
-        });
-    });
+        })
+        .subscribe();
 }
 
 function setupDataChannel(remoteUid) {
@@ -137,6 +124,7 @@ export function broadcastData(data) {
 }
 
 export function closeWebRTC() {
+    if (realtimeChannel) realtimeChannel.unsubscribe();
     for (const uid in peerConnections) {
         peerConnections[uid].close();
     }

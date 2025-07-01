@@ -1,5 +1,5 @@
 import { broadcastData } from './webrtc.js';
-import { getFirestore, doc, updateDoc, getDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+import { supabase } from './supabase-client.js';
 
 let scene, camera, renderer;
 let localPlayer, localPlayerUid;
@@ -24,7 +24,7 @@ export function initGame(players, myUid, roomData) {
     renderer = new THREE.WebGLRenderer({ canvas: canvas });
     renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const caughtPlayers = roomData.caughtPlayers || [];
+    const caughtPlayers = roomData.caught_players || [];
     players.filter(p => !caughtPlayers.includes(p.uid)).forEach(player => {
         const geometry = new THREE.BoxGeometry(1, 2, 1);
         const material = new THREE.MeshStandardMaterial({ color: player.uid === myUid ? 0x00ff00 : 0xff0000 });
@@ -83,18 +83,18 @@ export function initGame(players, myUid, roomData) {
     wall4.rotation.y = -Math.PI / 2;
     scene.add(wall4);
 
-    if (!roomData.keyFound) {
+    if (!roomData.key_found) {
         const keyGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.1);
         const keyMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.5 });
         keyObject = new THREE.Mesh(keyGeometry, keyMaterial);
-        keyObject.position.set(roomData.keyPosition.x, roomData.keyPosition.y, roomData.keyPosition.z);
+        keyObject.position.set(roomData.key_position.x, roomData.key_position.y, roomData.key_position.z);
         scene.add(keyObject);
     }
 
     const aiGeometry = new THREE.BoxGeometry(1.2, 2.5, 1.2);
     const aiMaterial = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.1 });
     listenerAI = new THREE.Mesh(aiGeometry, aiMaterial);
-    listenerAI.position.set(roomData.ai.position.x, roomData.ai.position.y, roomData.ai.position.z);
+    listenerAI.position.set(roomData.ai_position.x, roomData.ai_position.y, roomData.ai_position.z);
     scene.add(listenerAI);
 
     setupControls();
@@ -151,8 +151,6 @@ function setupControls() {
 export function startGameLoop(roomId, isHost) {
     const clock = new THREE.Clock();
     const speed = 4.0;
-    const db = getFirestore();
-    const roomRef = doc(db, "rooms", roomId);
 
     function animate() {
         requestAnimationFrame(animate);
@@ -173,7 +171,7 @@ export function startGameLoop(roomId, isHost) {
 
         if (keyObject && localPlayer) {
             if (localPlayer.position.distanceTo(keyObject.position) < 1.5) {
-                updateDoc(roomRef, { keyFound: true, keyHolderUid: localPlayerUid });
+                supabase.from('rooms').update({ key_found: true, key_holder_uid: localPlayerUid }).eq('id', roomId).then();
                 scene.remove(keyObject);
                 keyObject = null;
             }
@@ -204,20 +202,19 @@ export function startGameLoop(roomId, isHost) {
                 const distanceToTarget = listenerAI.position.distanceTo(targetPlayer.position);
 
                 if (distanceToTarget < 1.5) {
-                    updateDoc(roomRef, {
-                        caughtPlayers: arrayUnion(targetPlayer.userData.uid),
-                        threatLevel: 0,
-                        "ai.state": "dormant"
-                    });
+                    supabase.from('rooms').update({
+                        caught_players: [...(targetPlayer.userData.caughtPlayers || []), targetPlayer.userData.uid],
+                        threat_level: 0,
+                        ai_state: "dormant"
+                    }).eq('id', roomId).then();
                 } else {
                     const aiSpeed = 1.5;
                     const direction = new THREE.Vector3().subVectors(targetPlayer.position, listenerAI.position).normalize();
                     listenerAI.position.add(direction.multiplyScalar(aiSpeed * delta));
-                    // *** LÍNEA CORREGIDA: YA NO SE ESCRIBE EN FIRESTORE ***
                     broadcastData({ type: 'ai-position', data: listenerAI.position });
                 }
             } else {
-                updateDoc(roomRef, { threatLevel: 0, "ai.state": "dormant" });
+                supabase.from('rooms').update({ threat_level: 0, ai_state: "dormant" }).eq('id', roomId).then();
             }
         }
 
@@ -225,7 +222,7 @@ export function startGameLoop(roomId, isHost) {
         if (localPlayer && localPlayer.visible) livingPlayersList.push(localPlayer);
 
         if (isHost && livingPlayersList.length === 0 && scene.children.length > 0) {
-             updateDoc(roomRef, { status: 'finished' });
+             supabase.from('rooms').update({ status: 'finished' }).eq('id', roomId).then();
         }
 
         if (isSpectating) {
