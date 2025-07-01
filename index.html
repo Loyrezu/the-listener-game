@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Black Room - Juego de Terror</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="loading-screen">
+        <h1>Conectando...</h1>
+    </div>
+
+    <div id="lobby-screen" class="hidden">
+        <h2>Salas de Juego</h2>
+        <div id="create-room-container">
+            <input type="text" id="room-name-input" placeholder="Nombre de la nueva sala">
+            <button id="create-room-btn">Crear Sala</button>
+        </div>
+        <div id="rooms-list"></div>
+    </div>
+
+    <div id="room-wait-screen" class="hidden">
+        <h2 id="room-title"></h2>
+        <p>Jugadores en la sala:</p>
+        <ul id="players-list"></ul>
+        <p id="start-game-container">
+            <button id="start-game-btn">Empezar Partida</button>
+            <span id="start-game-waiting-text">Esperando a que el anfitrión comience...</span>
+        </p>
+    </div>
+
+    <div id="game-container" class="hidden">
+        <canvas id="game-canvas"></canvas>
+        <div id="spectate-ui" class="hidden">
+            <h2>MODO ESPECTADOR</h2>
+            <p>Observando a: <span id="spectate-target-name">--</span></p>
+            <p>Cambiar Cámara (C) | Siguiente Jugador (Q)</p>
+            <button id="leave-match-btn">Abandonar Partida</button>
+        </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
