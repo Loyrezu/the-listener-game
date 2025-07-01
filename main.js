@@ -2,7 +2,6 @@ import { supabase } from './supabase-client.js';
 import { initGame, startGameLoop, updateAIState } from './game.js';
 import { initWebRTC, closeWebRTC } from './webrtc.js';
 
-// --- Envolvemos todo en un listener para asegurar que el HTML esté cargado ---
 document.addEventListener('DOMContentLoaded', () => {
     const loadingScreen = document.getElementById('loading-screen');
     const lobbyScreen = document.getElementById('lobby-screen');
