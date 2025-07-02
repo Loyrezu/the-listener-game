@@ -20,16 +20,12 @@ export function initWebRTC(supabaseClient, uid, currentRoomId, players) {
 
     const otherPlayers = players.filter(p => p.uid !== localUid);
     otherPlayers.forEach(player => {
-        if (localUid < player.uid) {
-            createPeerConnection(player.uid, true);
-        } else {
-            createPeerConnection(player.uid, false);
-        }
+        createPeerConnection(player.uid, localUid < player.uid);
     });
     listenForWebRTCSignals();
 }
 
-function createPeerConnection(remoteUid, isOffering) {
+async function createPeerConnection(remoteUid, isOffering) {
     peerConnections[remoteUid] = new RTCPeerConnection(configuration);
 
     peerConnections[remoteUid].onicecandidate = event => {
@@ -47,16 +43,15 @@ function createPeerConnection(remoteUid, isOffering) {
         dataChannels[remoteUid] = peerConnections[remoteUid].createDataChannel("gameData");
         setupDataChannel(remoteUid);
 
-        peerConnections[remoteUid].createOffer()
-            .then(offer => peerConnections[remoteUid].setLocalDescription(offer))
-            .then(() => {
-                supabase.from('signals').insert({
-                    room_id: roomId,
-                    from_uid: localUid,
-                    to_uid: remoteUid,
-                    data: { sdp: peerConnections[remoteUid].localDescription.toJSON() }
-                }).then();
-            });
+        const offer = await peerConnections[remoteUid].createOffer();
+        await peerConnections[remoteUid].setLocalDescription(offer);
+
+        await supabase.from('signals').insert({
+            room_id: roomId,
+            from_uid: localUid,
+            to_uid: remoteUid,
+            data: { sdp: peerConnections[remoteUid].localDescription.toJSON() }
+        });
     } else {
         peerConnections[remoteUid].ondatachannel = event => {
             dataChannels[remoteUid] = event.channel;
@@ -66,7 +61,7 @@ function createPeerConnection(remoteUid, isOffering) {
 }
 
 function listenForWebRTCSignals() {
-    realtimeChannel = supabase.channel(`signals_for_${localUid}`)
+    realtimeChannel = supabase.channel(`webrtc-signals-${roomId}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'signals', filter: `to_uid=eq.${localUid}` }, async payload => {
             const signal = payload.new.data;
             const remoteUid = payload.new.from_uid;
@@ -86,7 +81,11 @@ function listenForWebRTCSignals() {
                     });
                 }
             } else if (signal.candidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                } catch (e) {
+                    console.error('Error adding received ice candidate', e);
+                }
             }
         })
         .subscribe();

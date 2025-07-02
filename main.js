@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function listenToCurrentRoom(roomId) {
         if (roomSubscription) roomSubscription.unsubscribe();
         
-        roomSubscription = supabase.channel(`public:rooms:id=eq.${roomId}`)
+        roomSubscription = supabase.channel(`room-${roomId}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, payload => {
                 handleRoomUpdate(payload.new);
             })
@@ -263,6 +263,5 @@ document.addEventListener('DOMContentLoaded', () => {
         spectateUI.classList.remove('active');
     }
 
-    // Iniciar la aplicación
     handleAuth();
 });
