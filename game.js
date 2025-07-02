@@ -202,11 +202,12 @@ export function startGameLoop(roomId, isHost) {
                 const distanceToTarget = listenerAI.position.distanceTo(targetPlayer.position);
 
                 if (distanceToTarget < 1.5) {
-                    // *** CÓDIGO CORREGIDO: Llamar a la función de la base de datos ***
                     supabase.rpc('player_caught', {
                         room_id_input: roomId,
                         player_uid_input: targetPlayer.userData.uid
-                    }).then();
+                    }).then(({error}) => {
+                        if (error) console.error('Error al llamar a player_caught:', error);
+                    });
                 } else {
                     const aiSpeed = 1.5;
                     const direction = new THREE.Vector3().subVectors(targetPlayer.position, listenerAI.position).normalize();
